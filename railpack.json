@@ -6,14 +6,14 @@
   },
   "steps": {
     "install": {
-      "commands": ["cd backend && npm install"]
+      "commands": ["npm install"]
     },
     "build": {
       "inputs": [{ "step": "install" }],
-      "commands": ["cd backend && npx prisma generate"]
+      "commands": ["npx prisma generate"]
     }
   },
   "deploy": {
-    "startCommand": "cd backend && npm start"
+    "startCommand": "npm start"
   }
 }
