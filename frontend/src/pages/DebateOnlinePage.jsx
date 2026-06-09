@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Check, Copy, QrCode, Users } from 'lucide-react';
 import Card from '../components/Card';
@@ -20,6 +20,44 @@ export default function DebateOnlinePage() {
   const [error, setError] = useState('');
   const [roomData, setRoomData] = useState(null);
   const [isCopied, setIsCopied] = useState(false);
+  const [roomStatus, setRoomStatus] = useState('waiting');
+  const [participantCount, setParticipantCount] = useState(1);
+
+  useEffect(() => {
+    if (!roomData?.roomCode) {
+      return undefined;
+    }
+
+    let isMounted = true;
+
+    const syncRoomStatus = async () => {
+      try {
+        const response = await api.get(`/debates/room/${roomData.roomCode}`);
+        if (!isMounted) {
+          return;
+        }
+
+        setRoomStatus(response.data.status || 'waiting');
+        setParticipantCount(response.data.participants?.length || 0);
+      } catch (err) {
+        if (!isMounted) {
+          return;
+        }
+
+        console.error(err);
+      }
+    };
+
+    void syncRoomStatus();
+    const intervalId = setInterval(() => {
+      void syncRoomStatus();
+    }, 3000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, [roomData?.roomCode]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -39,6 +77,8 @@ export default function DebateOnlinePage() {
       localStorage.setItem(`username_${debateId}`, formData.username);
 
       setRoomData({ debateId, roomCode, inviteLink, qrCode });
+      setRoomStatus('waiting');
+      setParticipantCount(1);
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.error || 'Gagal membuat room. Coba lagi.');
@@ -53,6 +93,15 @@ export default function DebateOnlinePage() {
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   };
+
+  const canEnterLobby = participantCount >= 2;
+  const roomStateLabel = roomStatus === 'ongoing'
+    ? 'Debat Dimulai'
+    : roomStatus === 'countdown'
+      ? 'Countdown Dimulai'
+      : participantCount >= 2
+        ? 'Siap Masuk Lobby'
+        : 'Menunggu Lawan';
 
   return (
     <div className="relative flex min-h-screen flex-col overflow-hidden bg-grid-pattern px-6 py-6">
@@ -175,7 +224,7 @@ export default function DebateOnlinePage() {
                 <p className="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-teal-200">Room Siap Digunakan</p>
                 <h2 className="text-3xl font-bold text-white">Room Debat Berhasil Dibuat</h2>
                 <p className="mx-auto mt-3 max-w-xl text-sm leading-7 text-slate-400">
-                  Undang teman Anda menggunakan kode room, link, atau QR code di bawah ini. Alur masuk ke arena tetap sama.
+                  Undang teman Anda menggunakan kode room, link, atau QR code di bawah ini. Arena debat baru bisa dimasuki setelah kedua pemain sudah bergabung.
                 </p>
               </div>
 
@@ -188,6 +237,22 @@ export default function DebateOnlinePage() {
                     <span className="text-4xl font-black tracking-[0.25em] text-teal-200">
                       {roomData.roomCode}
                     </span>
+                  </div>
+
+                  <div className="rounded-[22px] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
+                    <div className="flex items-center justify-between gap-3">
+                      <span>Status Room</span>
+                      <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] ${
+                        canEnterLobby
+                          ? 'border border-teal-200/20 bg-teal-300/10 text-teal-200'
+                          : 'border border-amber-200/20 bg-amber-200/10 text-amber-200'
+                      }`}>
+                        {roomStateLabel}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs leading-6 text-slate-400">
+                      {participantCount}/2 pemain sudah masuk.
+                    </p>
                   </div>
 
                   <div>
@@ -240,9 +305,10 @@ export default function DebateOnlinePage() {
               <div className="flex justify-center pt-2">
                 <Button
                   onClick={() => navigate(`/arena/${roomData.debateId}`)}
+                  disabled={!canEnterLobby}
                   className="w-full max-w-sm"
                 >
-                  Masuk Ke Arena Debat
+                  {canEnterLobby ? 'Masuk Ke Lobby Debat' : 'Menunggu Pemain Kedua Bergabung'}
                 </Button>
               </div>
             </div>

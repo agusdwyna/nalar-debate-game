@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Copy, MessageSquare, Send, ShieldAlert, Timer, Users } from 'lucide-react';
+import { CheckCircle2, Copy, MessageSquare, Send, ShieldAlert, Timer, Users } from 'lucide-react';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Textarea from '../components/Textarea';
@@ -28,6 +28,7 @@ export default function ArenaPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
+  const [isUpdatingReady, setIsUpdatingReady] = useState(false);
   const [error, setError] = useState('');
   const [copied, setCopied] = useState(false);
   const [now, setNow] = useState(0);
@@ -170,15 +171,22 @@ export default function ArenaPage() {
   const remainingMs = deadlineMs ? Math.max(0, deadlineMs - now) : 0;
   const elapsedRatio = activeRule ? Math.min(1, 1 - remainingMs / activeRule.durationMs) : 0;
   const timeExpired = Boolean(activeRule && remainingMs <= 0);
+  const readyCountdownMs = debate?.readyCountdownDeadline ? Math.max(0, new Date(debate.readyCountdownDeadline).getTime() - now) : 0;
 
   const proParticipant = debate?.participants.find((item) => item.side === 'pro');
   const contraParticipant = debate?.participants.find((item) => item.side === 'contra');
   const isWaitingRoom = debate?.status === 'waiting' && debate?.mode === 'ONLINE';
+  const isCountdownRoom = debate?.status === 'countdown' && debate?.mode === 'ONLINE';
   const isDebateArgumentsFinished = debate?.rounds.every((round) => round.proArgument && round.contraArgument);
   const hasUserSubmitted = currentUser && currentRound && (
     (currentUser.side === 'pro' && currentRound.proArgument) ||
     (currentUser.side === 'contra' && currentRound.contraArgument)
   );
+  const currentParticipant = debate?.participants.find((item) => item.username === currentUser?.username && item.side === currentUser?.side);
+  const allHumanParticipantsReady = [proParticipant, contraParticipant]
+    .filter((participant) => participant && !participant.isAI)
+    .every((participant) => participant?.isReady);
+  const hasBothOnlineParticipants = debate?.mode === 'ONLINE' && proParticipant && contraParticipant;
 
   const characterCount = argumentText.length;
   const characterProgress = Math.min(100, (characterCount / maxChars) * 100);
@@ -190,10 +198,39 @@ export default function ArenaPage() {
     return `${minutes}:${String(seconds).padStart(2, '0')}`;
   }, [remainingMs]);
 
+  const readyCountdownLabel = useMemo(() => {
+    const totalSeconds = Math.ceil(readyCountdownMs / 1000);
+    return String(Math.max(0, totalSeconds));
+  }, [readyCountdownMs]);
+
   const roundTypeInfo = {
     opening: 'Ronde 1: Opening. Paparkan argumen pembuka Anda secara jelas.',
     rebuttal: 'Ronde 2: Rebuttal. Sanggah inti argumen lawan secara singkat dan tepat.',
     closing: 'Ronde 3: Closing. Tutup debat dengan kesimpulan paling kuat.',
+  };
+
+  const handleReadyToggle = async () => {
+    if (!currentUser || !debate) {
+      return;
+    }
+
+    setIsUpdatingReady(true);
+    setError('');
+
+    try {
+      const response = await api.post(`/debates/${debate.id}/ready`, {
+        sessionId: currentUser.sessionId,
+        ready: !currentParticipant?.isReady,
+      });
+
+      setDebate(response.data.debate);
+      await fetchDebateData();
+    } catch (err) {
+      console.error(err);
+      setError(err.response?.data?.error || 'Gagal memperbarui status ready.');
+    } finally {
+      setIsUpdatingReady(false);
+    }
   };
 
   const renderArgumentContent = (round, side) => {
@@ -328,15 +365,19 @@ export default function ArenaPage() {
         </div>
 
         <div className="space-y-6 md:col-span-3">
-          {isWaitingRoom ? (
+          {isWaitingRoom || isCountdownRoom ? (
             <Card glow className="mx-auto max-w-xl space-y-6 px-6 py-12 text-center">
               <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-teal-200/20 bg-teal-300/10 text-teal-200">
                 <Users size={32} />
               </div>
               <div className="space-y-2">
-                <h2 className="text-2xl font-bold text-white">Menunggu Teman Bergabung...</h2>
+                <h2 className="text-2xl font-bold text-white">
+                  {isCountdownRoom ? 'Debat Akan Dimulai...' : 'Lobby Room Debat'}
+                </h2>
                 <p className="mx-auto max-w-md text-sm leading-7 text-slate-400">
-                  Berikan kode room atau salin link undangan di bawah ini agar lawan dapat masuk ke arena debat Anda.
+                  {hasBothOnlineParticipants
+                    ? 'Kedua pemain sudah masuk. Tekan ready, dan debat akan otomatis dimulai 5 detik setelah semua siap.'
+                    : 'Berikan kode room atau salin link undangan di bawah ini agar lawan dapat masuk ke arena debat Anda.'}
                 </p>
               </div>
 
@@ -352,6 +393,73 @@ export default function ArenaPage() {
                   {copied ? <span className="text-teal-200">Tersalin ke Clipboard!</span> : <><Copy size={14} /><span>Salin Link Undangan</span></>}
                 </button>
               </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                {[proParticipant, contraParticipant].map((participant) => (
+                  <div
+                    key={participant?.id || participant?.side}
+                    className="rounded-[24px] border border-white/8 bg-white/[0.03] p-5 text-left"
+                  >
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <span className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] ${
+                        participant?.side === 'pro'
+                          ? 'border border-amber-200/20 bg-amber-200/10 text-amber-200'
+                          : 'border border-teal-200/20 bg-teal-300/10 text-teal-200'
+                      }`}>
+                        {participant?.side?.toUpperCase() || 'MENUNGGU'}
+                      </span>
+                      <span className={`inline-flex items-center gap-1 text-xs font-semibold ${
+                        participant?.isReady ? 'text-teal-200' : 'text-slate-500'
+                      }`}>
+                        <CheckCircle2 size={14} />
+                        {participant?.isReady ? 'Ready' : 'Belum ready'}
+                      </span>
+                    </div>
+                    <div className="text-sm font-bold text-white">
+                      {participant?.username || 'Menunggu pemain...'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {hasBothOnlineParticipants && currentParticipant && (
+                <div className="space-y-4">
+                  {isCountdownRoom ? (
+                    <div className="rounded-[24px] border border-teal-200/20 bg-teal-300/10 px-6 py-5">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-teal-200">
+                        Countdown Mulai
+                      </p>
+                      <p className="mt-3 text-5xl font-black text-white">{readyCountdownLabel}</p>
+                      <p className="mt-3 text-sm leading-7 text-slate-300">
+                        Semua pemain sudah ready. Debat akan dimulai otomatis.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-[24px] border border-white/8 bg-white/[0.03] px-6 py-5">
+                      <p className="text-sm leading-7 text-slate-300">
+                        Status Anda saat ini: <strong className={currentParticipant.isReady ? 'text-teal-200' : 'text-amber-200'}>
+                          {currentParticipant.isReady ? 'READY' : 'BELUM READY'}
+                        </strong>
+                      </p>
+                    </div>
+                  )}
+
+                  <Button
+                    onClick={handleReadyToggle}
+                    isLoading={isUpdatingReady}
+                    variant={currentParticipant.isReady ? 'secondary' : 'accent'}
+                    className="mx-auto w-full max-w-sm"
+                  >
+                    {currentParticipant.isReady ? 'Batalkan Ready' : 'Saya Siap'}
+                  </Button>
+                </div>
+              )}
+
+              {hasBothOnlineParticipants && !allHumanParticipantsReady && (
+                <p className="text-sm leading-7 text-slate-400">
+                  Debat belum akan dimulai sampai kedua pemain menekan tombol ready.
+                </p>
+              )}
             </Card>
           ) : (
             <>

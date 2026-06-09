@@ -12,10 +12,11 @@ model Debate {
   roomCode     String        @unique
   mode         String        // "AI" or "ONLINE"
   topic        String
-  status       String        // "waiting", "ongoing", "finished"
+  status       String        // "waiting", "countdown", "ongoing", "finished"
   totalRounds  Int           @default(3)
   currentRound Int           @default(1)
   aiLevel      String?       // "easy", "medium", "hard"
+  readyCountdownStartedAt DateTime?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   participants Participant[]
@@ -30,6 +31,7 @@ model Participant {
   side      String   // "pro" or "contra"
   sessionId String
   isAI      Boolean  @default(false)
+  isReady   Boolean  @default(false)
   createdAt DateTime @default(now())
   debate    Debate   @relation(fields: [debateId], references: [id], onDelete: Cascade)
 }

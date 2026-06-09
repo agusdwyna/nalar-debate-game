@@ -4,6 +4,9 @@ import { generateSessionId } from '../utils/session.js';
 import { generateQRCode } from '../services/qrService.js';
 import { generateAIArgument, evaluateDebate } from '../services/nalarService.js';
 
+const FRONTEND_APP_URL = process.env.FRONTEND_APP_URL || process.env.FRONTEND_URL || '';
+const ONLINE_READY_COUNTDOWN_MS = 5000;
+
 const ROUND_RULES = {
   opening: {
     durationMs: 90 * 1000,
@@ -41,6 +44,11 @@ function getDeadlineIso(debate, round) {
   return new Date(deadline).toISOString();
 }
 
+function getReadyCountdownDeadlineIso(debate) {
+  if (!debate?.readyCountdownStartedAt) return null;
+  return new Date(new Date(debate.readyCountdownStartedAt).getTime() + ONLINE_READY_COUNTDOWN_MS).toISOString();
+}
+
 function decorateDebate(debate) {
   const currentRound = debate.rounds.find((round) => round.roundNumber === debate.currentRound);
 
@@ -49,6 +57,7 @@ function decorateDebate(debate) {
     participants: debate.participants.map(({ sessionId, ...participant }) => participant),
     roundRules: ROUND_RULES,
     currentRoundDeadline: getDeadlineIso(debate, currentRound),
+    readyCountdownDeadline: getReadyCountdownDeadlineIso(debate),
   };
 }
 
@@ -103,6 +112,10 @@ async function fetchDebateOrThrow(id) {
 async function syncDebateState(debate) {
   let currentDebate = debate;
 
+  if (currentDebate?.mode === 'ONLINE') {
+    currentDebate = await syncOnlineLobbyState(currentDebate);
+  }
+
   while (currentDebate && currentDebate.status === 'ongoing') {
     const activeRound = currentDebate.rounds.find((round) => round.roundNumber === currentDebate.currentRound);
     if (!activeRound) break;
@@ -121,6 +134,57 @@ async function syncDebateState(debate) {
   }
 
   return currentDebate;
+}
+
+async function syncOnlineLobbyState(debate) {
+  if (!debate || debate.mode !== 'ONLINE' || debate.status === 'finished') {
+    return debate;
+  }
+
+  const humanParticipants = debate.participants.filter((participant) => !participant.isAI);
+  const hasBothPlayers = humanParticipants.length === 2;
+  const everyoneReady = hasBothPlayers && humanParticipants.every((participant) => participant.isReady);
+
+  if (debate.status === 'countdown') {
+    if (!everyoneReady) {
+      await prisma.debate.update({
+        where: { id: debate.id },
+        data: {
+          status: 'waiting',
+          readyCountdownStartedAt: null,
+        },
+      });
+
+      return fetchDebateOrThrow(debate.id);
+    }
+
+    const countdownDeadline = new Date(debate.readyCountdownStartedAt).getTime() + ONLINE_READY_COUNTDOWN_MS;
+    if (Date.now() >= countdownDeadline) {
+      await prisma.debate.update({
+        where: { id: debate.id },
+        data: {
+          status: 'ongoing',
+          readyCountdownStartedAt: null,
+        },
+      });
+
+      return fetchDebateOrThrow(debate.id);
+    }
+  }
+
+  if (debate.status === 'waiting' && everyoneReady) {
+    await prisma.debate.update({
+      where: { id: debate.id },
+      data: {
+        status: 'countdown',
+        readyCountdownStartedAt: new Date(),
+      },
+    });
+
+    return fetchDebateOrThrow(debate.id);
+  }
+
+  return debate;
 }
 
 async function finalizeExpiredRound(debate, round) {
@@ -276,8 +340,9 @@ export const createOnlineDebate = async (req, res) => {
 
     const roomCode = generateRoomCode();
     const sessionId = generateSessionId();
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    const inviteLink = `${frontendUrl}/join/${roomCode}`;
+    const inviteLink = FRONTEND_APP_URL
+      ? `${FRONTEND_APP_URL.replace(/\/+$/, '')}/join/${roomCode}`
+      : `/join/${roomCode}`;
     const qrCode = await generateQRCode(inviteLink);
 
     const debate = await prisma.debate.create({
@@ -353,6 +418,7 @@ export const getDebateByRoomCode = async (req, res) => {
             username: true,
             side: true,
             isAI: true,
+            isReady: true,
           },
         },
       },
@@ -406,12 +472,8 @@ export const joinOnlineDebate = async (req, res) => {
         side: joinerSide,
         sessionId,
         isAI: false,
+        isReady: false,
       },
-    });
-
-    await prisma.debate.update({
-      where: { id: debate.id },
-      data: { status: 'ongoing' },
     });
 
     return res.json({
@@ -422,6 +484,51 @@ export const joinOnlineDebate = async (req, res) => {
   } catch (error) {
     console.error('Error joining debate:', error);
     return res.status(500).json({ error: 'Gagal masuk ke room debat.' });
+  }
+};
+
+export const setOnlineParticipantReady = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { sessionId, ready } = req.body;
+
+    if (!sessionId || typeof ready !== 'boolean') {
+      return res.status(400).json({ error: 'Session ID dan status ready wajib diisi.' });
+    }
+
+    let debate = await fetchDebateOrThrow(id);
+    if (!debate) {
+      return res.status(404).json({ error: 'Debat tidak ditemukan.' });
+    }
+
+    if (debate.mode !== 'ONLINE') {
+      return res.status(400).json({ error: 'Mode ready hanya berlaku untuk debat online.' });
+    }
+
+    if (debate.status === 'finished') {
+      return res.status(400).json({ error: 'Debat ini sudah selesai.' });
+    }
+
+    const participant = debate.participants.find((item) => item.sessionId === sessionId && !item.isAI);
+    if (!participant) {
+      return res.status(403).json({ error: 'Akses ditolak. Sesi tidak valid.' });
+    }
+
+    await prisma.participant.update({
+      where: { id: participant.id },
+      data: { isReady: ready },
+    });
+
+    debate = await fetchDebateOrThrow(id);
+    debate = await syncOnlineLobbyState(debate);
+    debate = sanitizeDebateForParticipant(debate, sessionId);
+
+    return res.json({
+      debate: decorateDebate(debate),
+    });
+  } catch (error) {
+    console.error('Error updating ready state:', error);
+    return res.status(500).json({ error: 'Gagal memperbarui status ready.' });
   }
 };
 
@@ -445,6 +552,10 @@ export const submitRoundArgument = async (req, res) => {
     const participant = debate.participants.find((item) => item.sessionId === sessionId);
     if (!participant) {
       return res.status(403).json({ error: 'Akses ditolak. Sesi tidak valid.' });
+    }
+
+    if (debate.mode === 'ONLINE' && debate.status !== 'ongoing') {
+      return res.status(400).json({ error: 'Debat belum dimulai. Tunggu sampai kedua pemain ready.' });
     }
 
     if (requestedRoundNumber !== debate.currentRound) {
