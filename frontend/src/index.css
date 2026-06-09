@@ -1,0 +1,134 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --bg: #081118;
+  --bg-soft: #0d1821;
+  --panel: rgba(11, 22, 30, 0.78);
+  --panel-strong: rgba(13, 24, 33, 0.94);
+  --border: rgba(129, 164, 189, 0.14);
+  --text: #edf6f5;
+  --muted: #9fb1b7;
+  --accent: #f4a261;
+  --accent-soft: rgba(244, 162, 97, 0.16);
+  --accent-strong: #ffbf83;
+  --secondary: #4fd1c5;
+  --secondary-soft: rgba(79, 209, 197, 0.16);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at top left, rgba(244, 162, 97, 0.14), transparent 30%),
+    radial-gradient(circle at bottom right, rgba(79, 209, 197, 0.14), transparent 30%),
+    linear-gradient(180deg, #071017 0%, #081118 44%, #0a141c 100%);
+  color: var(--text);
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: 'Space Grotesk', 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(244, 162, 97, 0.3);
+  color: #fff7ef;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(6, 15, 22, 0.9);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(244, 162, 97, 0.85), rgba(79, 209, 197, 0.7));
+  border-radius: 9999px;
+  border: 2px solid rgba(6, 15, 22, 0.9);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(255, 191, 131, 0.95), rgba(109, 231, 224, 0.85));
+}
+
+.bg-grid-pattern {
+  background-image:
+    linear-gradient(to right, rgba(159, 177, 183, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(159, 177, 183, 0.06) 1px, transparent 1px);
+  background-size: 42px 42px;
+}
+
+.blur-radial-indigo {
+  background: radial-gradient(circle, rgba(244, 162, 97, 0.18) 0%, transparent 72%);
+}
+
+.blur-radial-cyan {
+  background: radial-gradient(circle, rgba(79, 209, 197, 0.16) 0%, transparent 72%);
+}
+
+.animate-fade-in {
+  animation: fade-in 0.7s ease-out both;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.55s ease-out both;
+}
+
+.text-shadow-soft {
+  text-shadow: 0 10px 30px rgba(0, 0, 0, 0.22);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

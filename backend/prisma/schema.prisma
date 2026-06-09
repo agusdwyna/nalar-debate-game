@@ -1,0 +1,65 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Debate {
+  id           String        @id @default(uuid())
+  roomCode     String        @unique
+  mode         String        // "AI" or "ONLINE"
+  topic        String
+  status       String        // "waiting", "ongoing", "finished"
+  totalRounds  Int           @default(3)
+  currentRound Int           @default(1)
+  aiLevel      String?       // "easy", "medium", "hard"
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  participants Participant[]
+  rounds       DebateRound[]
+  result       DebateResult?
+}
+
+model Participant {
+  id        String   @id @default(uuid())
+  debateId  String
+  username  String
+  side      String   // "pro" or "contra"
+  sessionId String
+  isAI      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  debate    Debate   @relation(fields: [debateId], references: [id], onDelete: Cascade)
+}
+
+model DebateRound {
+  id             String   @id @default(uuid())
+  debateId       String
+  roundNumber    Int
+  roundType      String   // "opening", "rebuttal", "closing"
+  proArgument    String?  @db.Text
+  contraArgument String?  @db.Text
+  proScore       Int?
+  contraScore    Int?
+  aiFeedback     String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  debate         Debate   @relation(fields: [debateId], references: [id], onDelete: Cascade)
+}
+
+model DebateResult {
+  id                 String   @id @default(uuid())
+  debateId           String   @unique
+  winnerSide         String   // "pro" or "contra"
+  proTotalScore      Int
+  contraTotalScore   Int
+  summary            String   @db.Text
+  proStrengths       String   @db.Text
+  contraStrengths    String   @db.Text
+  proWeaknesses      String   @db.Text
+  contraWeaknesses   String   @db.Text
+  createdAt          DateTime @default(now())
+  debate             Debate   @relation(fields: [debateId], references: [id], onDelete: Cascade)
+}
